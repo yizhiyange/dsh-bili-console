@@ -18,6 +18,10 @@
   （登录、搜索、字幕、评论、私信等 27 个工具）
 - 说明：它是本插件使用的**基础能力库**，不是本插件的上位依赖；
   本插件不依赖任何其它 DSH 插件的代码
+- **上游修改声明**：随包分发的 mcp_server.py 在上游基础上做了追加——
+  新增 bili_comment_delete（撤回自己的评论）、bili_audio_url（取音频流供本地转写）、
+  bili_favorite_add（收藏），并扩展了 bili_reply；这些改动同样以 MIT 发布，
+  与上游差异以本仓库版本为准。
 
 ### dsh-bili-scroll（client.js 加载骨架的起点）
 
