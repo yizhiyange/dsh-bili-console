@@ -480,6 +480,11 @@ window.__ModuleLoader__.load({
       // 网页版控制台地址面板（手机端 window.prompt 不可靠，改用页面内可见面板）
       const [webUrl, setWebUrl] = React.useState('')
       const [webOpen, setWebOpen] = React.useState(false)
+      // 版本自检：upRes=最近一次手动检查的结果；upMode/upCustom=加速源草稿（同样要躲开轮询覆盖）
+      const [upBusy, setUpBusy] = React.useState(false)
+      const [upRes, setUpRes] = React.useState(null)
+      const [upMode, setUpMode] = React.useState(null)
+      const [upCustom, setUpCustom] = React.useState(null)
 
       React.useEffect(() => () => {
         alive.current = false
@@ -674,6 +679,30 @@ window.__ModuleLoader__.load({
       const openFolder = async (what) => {
         try { const r = await jpost('/open', { what }); toast_(r && r.ok ? ('已请系统打开：' + (r.opened || '')) : ('打不开：' + ((r && r.error) || ''))) }
         catch (e) { toast_('打不开：' + String(e?.message ?? e)) }
+      }
+
+      /* ── 版本自检 ─────────────────────────────────────────────
+         DSH 自带的「检查更新」管的是 DSH 软件本身，不会管我们的插件，
+         所以由插件自己去 GitHub 问版本号。查不到时可以换 CDN / 加速代理 / 自己填。 */
+      const saveUpOption = async (patch) => {
+        try { const r = await jpost('/update/option', patch); if (r && r.ok) setUpRes((p) => ({ ...(p || {}), ...r })) }
+        catch (e) { toast_('没存上：' + String(e?.message ?? e)) }
+      }
+      const doUpdateCheck = async (patch) => {
+        setUpBusy(true)
+        try {
+          const upNow = upRes || st.update || {}
+          const body = {
+            force: true,
+            mode: (patch && patch.mode) || upMode || upNow.mode || 'auto',
+            custom: (patch && patch.custom) !== undefined ? patch.custom : (upCustom != null ? upCustom : (upNow.custom || '')),
+          }
+          const r = await jpost('/update/check', body)
+          setUpRes(r)
+          if (r && r.hasUpdate) toast_('有新版本 v' + r.latest + ' —— 下面有下载链接')
+          else if (r && r.ok) toast_('已经是最新版 v' + r.latest)
+          else toast_('没查到版本，试试换个加速源')
+        } catch (e) { toast_('检查失败：' + String(e?.message ?? e)) } finally { setUpBusy(false) }
       }
       const runNow = async () => { try { const r = await jpost('/run/now', { force: true }); toast_(r.message || (r.ok ? '已开始' : '失败')) } catch (e) { toast_('请求失败：' + String(e?.message ?? e)) } }
       /** 清空所有视频的对话上下文（thread 模式产物） */
@@ -1215,6 +1244,58 @@ window.__ModuleLoader__.load({
         blocks.push(Card({ title: '高级（只读，改文件才行）', sub: null },
           h('div', { 'data-bd-sum': '' },
             ['pythonPath', 'dshBin', 'headlessProfile', 'workspace'].map((k) => k + '：' + (cfg[k] || '（空）')).join('\n') + '\noverlayMcp：' + (cfg.overlayMcp ? '开' : '关'))))
+
+        /* 版本与更新（自己造的那套：DSH 自带的「检查更新」只更新 DSH 自己） */
+        {
+          const base = upRes || st.update || {}
+          const cur = base.current || st.version || '0.0.0'
+          const mode = upMode || base.mode || 'auto'
+          const customVal = upCustom != null ? upCustom : (base.custom || '')
+          const srcList = [['auto', '自动（挨个试，通了就用）'], ...(base.sources || []).map((s) => [s.id, s.label])]
+          const triedList = base.tried || []
+          const autoOn = base.autoCheck !== false
+          blocks.push(Card({
+            title: '版本与更新',
+            sub: 'DSH 自带的「检查更新」更新的是 DSH 软件本身，这个是专门给本插件用的',
+            right: Tag({
+              c: upBusy ? 'gray' : (base.hasUpdate ? 'amber' : (base.ok ? 'green' : 'gray')),
+              children: upBusy ? '正在检查…' : (base.hasUpdate ? ('有新版本 v' + base.latest) : (base.ok ? ('已是最新 · v' + base.latest) : '还没查到')),
+            }),
+          },
+            h('div', { 'data-bd-setrow': '' },
+              h('div', { 'data-bd-txt': '' }, h('div', { 'data-bd-lb': '' }, '当前版本'), h('div', { 'data-bd-ds': '' }, '你手上装的是这个')),
+              Tag({ c: 'gray', children: 'v' + cur })),
+            h('div', { 'data-bd-setrow': '' },
+              h('div', { 'data-bd-txt': '' }, h('div', { 'data-bd-lb': '' }, '最新版本'),
+                h('div', { 'data-bd-ds': '' }, base.ok
+                  ? ('GitHub 仓库里是 v' + base.latest + (base.hasUpdate ? '，比你手上的新' : '，和你手上一样') + (base.source ? ('（走的是：' + base.source + '）') : ''))
+                  : '没连上 GitHub。换下面的加速源再点一次「立即检查更新」')),
+              Tag({ c: base.hasUpdate ? 'amber' : (base.ok ? 'green' : 'gray'), children: base.ok ? ('v' + base.latest) : '未知' })),
+            base.hasUpdate ? h('div', { 'data-bd-note': '', style: { margin: '0 0 12px' } },
+              h('div', null, '发现新版本 v' + base.latest + '。下载后重新导入安装包即可，你原来的配置和登录凭证不会被覆盖：'),
+              h('div', { style: { marginTop: '8px', display: 'flex', gap: '12px', flexWrap: 'wrap' } },
+                h('a', { 'data-bd-link': '', href: base.zipUrl, target: '_blank', rel: 'noopener' }, '下载最新代码 zip ↗'),
+                h('a', { 'data-bd-link': '', href: base.homepage, target: '_blank', rel: 'noopener' }, '去 GitHub 看改动 ↗'))) : null,
+            h('div', { 'data-bd-setrow': '' },
+              h('div', { 'data-bd-txt': '' }, h('div', { 'data-bd-lb': '' }, '更新源'), h('div', { 'data-bd-ds': '' }, '查不到就换一个；下面是刚才每个源的实测结果')),
+              Select({ value: mode, onChange: (v) => { setUpMode(v); if (v === 'custom') { saveUpOption({ mode: 'custom', custom: customVal }) } else { setUpCustom(''); saveUpOption({ mode: v, custom: '' }) } } },
+                srcList.map(([v, label]) => h('option', { value: v, key: v }, label)))),
+            mode === 'custom' ? h('div', { 'data-bd-setrow': '' },
+              h('div', { 'data-bd-txt': '' }, h('div', { 'data-bd-lb': '' }, '自定义代理地址'), h('div', { 'data-bd-ds': '' }, '填代理前缀（比如 ghfast.top）或完整地址都行；它会替我们去问 GitHub 的版本文件')),
+              Input({ value: customVal, onChange: (v) => setUpCustom(v), placeholder: 'ghfast.top 或 https://你的代理/…/package.json' })) : null,
+            triedList.length ? h('div', { 'data-bd-sum': '', style: { margin: '4px 0 0', fontSize: '12px' } },
+              '刚才试过的源：' + triedList.map((t) => t.id + (t.ok ? ' ✓ 通了' : ' ✗ ' + (t.why || '失败'))).join('；')) : null,
+            ToggleRow({
+              label: '每 6 小时自动检查',
+              note: '后台悄悄查一次，查到新版才会在插件日志里提一句；关掉就只能手动点按钮',
+              on: autoOn,
+              onChange: (v) => { setUpRes((p) => ({ ...(p || {}), autoCheck: v })); saveUpOption({ autoCheck: v }) },
+            }),
+            h('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' } },
+              h('button', { 'data-bd-btn': '', className: 'primary sm', onClick: () => doUpdateCheck(), disabled: upBusy }, upBusy ? '正在检查…' : '立即检查更新'),
+              mode === 'custom' ? h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: () => doUpdateCheck({ mode: 'custom', custom: customVal }) }, '保存代理并重试') : null,
+              h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: () => { setUpMode(null); setUpCustom(null); setUpRes(null) } }, '恢复默认'))))
+        }
 
         /* 保存栏 */
         blocks.push(Card({ title: null },

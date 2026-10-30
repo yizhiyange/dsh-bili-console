@@ -43,6 +43,8 @@ import { runRound } from './lib/round.mjs'
 import { checkDm, startDmWatcher } from './lib/dm.mjs'
 import { loadHostDeps } from './lib/hostdeps.mjs'
 import { ensureVenv, venvStatus, resolvePython } from './lib/pyenv.mjs'
+// 版本自检（DSH 自带的「检查更新」只更新 DSH 自己，管不到插件，所以自己造一套）
+import { checkUpdate, snapshot, setUpdateOption, initUpdate } from './lib/update.mjs'
 
 // ⭐ 从宿主那棵树取 schemastery（拿不到就降级，绝不让一个 import 拖死整条插件）
 const hostDeps = await loadHostDeps()
@@ -183,6 +185,7 @@ export function apply(ctx, _config) {
     return {
       ok: true, home, now: new Date().toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' }),
       version: PKG.version || '0.0.0',
+      update: snapshot(PKG.version || '0.0.0'),
       haveYaml: true,
       safeMode, noAdapter: false,
       status: { phase: '值守中', label: guardian.active() ? '风控冷却中' : '控制台在线', tone: guardian.active() ? 'warn' : 'ok' },
@@ -231,6 +234,24 @@ export function apply(ctx, _config) {
 
     if (req.method === 'OPTIONS') return sendJson(res, 204, {})
     if (req.method === 'GET' && path === '/state') return sendJson(res, 200, buildState())
+    // ===== 版本自检 =====
+    // GET  /update/state  —— 拿当前版本 + 上次检查结果 + 可用加速源（不联网，秒回）
+    // POST /update/check  —— 真去查一次（body: {force:true, mode?, custom?}）
+    // POST /update/option —— 保存选中的加速源 / 自动检查开关
+    if (req.method === 'GET' && path === '/update/state') {
+      return sendJson(res, 200, { ok: true, ...snapshot(PKG.version || '0.0.0') })
+    }
+    if (req.method === 'POST' && path === '/update/option') {
+      const b = await readBody(req)
+      const saved = setUpdateOption(home, { mode: b.mode, custom: b.custom, autoCheck: b.autoCheck })
+      return sendJson(res, 200, { ok: true, ...saved })
+    }
+    if (req.method === 'POST' && path === '/update/check') {
+      const b = await readBody(req)
+      if (b.mode !== undefined || b.custom !== undefined) setUpdateOption(home, { mode: b.mode, custom: b.custom })
+      const r = await checkUpdate({ current: PKG.version || '0.0.0', home, force: b.force !== false })
+      return sendJson(res, 200, { ok: true, ...r })
+    }
     if (req.method === 'GET' && path === '/rawlog') {
       let lines = []
       try {
@@ -523,6 +544,21 @@ export function apply(ctx, _config) {
     }), 'bili-console: /bili-console 页面路由')
     log(`已挂载（家=${home}，v${PKG.version}）`)
     logLine(home, '已挂载（网页控制台在线）')
+
+    // 版本自检：开插件时悄悄查一次，之后每 6 小时一次。全程 unref + try/catch，
+    // 失败了也不吭声（界面上会有"没查到，试试换个加速源"的提示，不打扰、更不会拖慢插件）
+    try {
+      initUpdate(home)
+      const SELF = PKG.version || '0.0.0'
+      const tick = () => {
+        checkUpdate({ current: SELF, home }).then((r) => {
+          if (r && r.hasUpdate) log(`发现新版本 v${r.latest}（当前 v${SELF}）：${r.url}`)
+        }).catch(() => {})
+      }
+      tick()
+      const timer = setInterval(tick, 6 * 60 * 60 * 1000)
+      try { timer.unref?.() } catch {}
+    } catch (e) { log(`版本自检跳过：${e?.message ?? e}`) }
   } catch (e) {
     log(`HTTP 路由没挂上：${e?.message ?? e}`)
   }
