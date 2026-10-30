@@ -20,7 +20,7 @@
  *   - 模型降级链（lib/chain.mjs + lib/llm.mjs）：配额/NO_ADAPTER → 自动跳下一节
  * ============================================================================
  */
-import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -37,7 +37,7 @@ import { threadStats, clearThreads } from './lib/memory.mjs'
 import { retractLast, listPosts, postedStats, clearPosts } from './lib/retract.mjs'
 import { asrStatus } from './lib/asr.mjs'
 import { visionReady } from './lib/vision.mjs'
-import { loginStatus, LoginSession, ALLOWED_TOOLS, newClient } from './lib/bili.mjs'
+import { loginStatus, LoginSession, ALLOWED_TOOLS, newClient, homeCredFile, vendorCredFile } from './lib/bili.mjs'
 import { BiliMcp } from './lib/mcpc.mjs'
 import { runRound } from './lib/round.mjs'
 import { checkDm, startDmWatcher } from './lib/dm.mjs'
@@ -268,6 +268,19 @@ export function apply(ctx, _config) {
     // ---- Phase 2：登录 ----
     if (req.method === 'GET' && path === '/login/status') {
       return sendJson(res, 200, { ok: true, ...loginStatus(home) })
+    }
+    if (req.method === 'POST' && path === '/logout') {
+      // 退出登录：删本机凭证（家目录 + vendor 同步副本），清登录会话与"我"的信息缓存。
+      // vendor 副本不删的话，loginStatus 的 vendor 回退会让你看起来"还在登录"（2026-10-30 加）
+      let removed = 0
+      for (const f of [homeCredFile(home), vendorCredFile()]) {
+        try { rmSync(f, { force: true }); removed++ } catch { /* 文件不存在就算了 */ }
+      }
+      const sess = loginSessions.get(home)
+      if (sess) { try { sess.close() } catch { /* noop */ } loginSessions.delete(home) }
+      try { _meCache.at = 0 } catch { /* 缓存变量未初始化也不致命 */ }
+      logLine(home, '已退出登录：本机凭证已删除，可扫码换账号')
+      return sendJson(res, 200, { ok: true, removed })
     }
     if (req.method === 'POST' && path === '/login/start') {
       try {
