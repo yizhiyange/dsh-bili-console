@@ -696,6 +696,14 @@ window.__ModuleLoader__.load({
           pollLogin()
         } catch (e) { setLogin((l) => ({ ...l, hint: '生成失败：' + String(e?.message ?? e) })) }
       }
+      /** 退出登录：删本机凭证，之后可以扫码换别的账号（2026-10-30 加） */
+      const doLogout = async () => {
+        if (!window.confirm('退出当前 B站 账号？\n退出后想再刷就要重新扫码（正好可以换别的号扫）。')) return
+        try {
+          const r = await jpost('/logout', {})
+          toast_(r && r.ok ? '已退出登录，现在可以扫码换账号了' : '退出失败：' + ((r && r.error) || ''))
+        } catch (e) { toast_('退出失败：' + String(e?.message ?? e)) }
+      }
       const pollLogin = () => {
         if (loginTimer.current) clearInterval(loginTimer.current)
         loginTimer.current = setInterval(async () => {
@@ -785,7 +793,8 @@ window.__ModuleLoader__.load({
                 '正在跑：' + ((st.run && st.run.label) || '轮次') + '（点「停止这一轮」会在下一条之前收手，不会发半句）') : null,
               h('div', { style: { display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' } },
                 h('button', { 'data-bd-btn': '', className: lg.loggedIn ? 'ghost sm' : 'primary', onClick: openLogin }, lg.loggedIn ? '重新登录' : '扫码登录'),
-                h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: dmCheck }, '查私信')),
+                h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: dmCheck }, '查私信'),
+                lg.loggedIn ? h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: doLogout }, '退出登录') : null),
               h('div', { 'data-bd-sum': '', style: { marginTop: '10px', fontSize: '11.5px' } },
                 '今天最多 ' + (cfg.perDay || 0) + ' 条 · 评论' + (cfg.autoComment ? '开' : '关') + ' · 私信' + ((cfg.dmMode && cfg.dmMode !== 'off') ? '开' : '关'))),
             Card({ title: null }, h('div', { 'data-bd-note': '' }, '今日进度'),
