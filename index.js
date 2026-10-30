@@ -45,6 +45,7 @@ import { loadHostDeps } from './lib/hostdeps.mjs'
 import { ensureVenv, venvStatus, resolvePython } from './lib/pyenv.mjs'
 // 版本自检（DSH 自带的「检查更新」只更新 DSH 自己，管不到插件，所以自己造一套）
 import { checkUpdate, snapshot, setUpdateOption, initUpdate } from './lib/update.mjs'
+import { VERSION as APP_VERSION } from './lib/version.mjs'
 
 // ⭐ 从宿主那棵树取 schemastery（拿不到就降级，绝不让一个 import 拖死整条插件）
 const hostDeps = await loadHostDeps()
@@ -94,8 +95,58 @@ const PKG = (() => {
   try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) } catch { return { version: '0.0.0' } }
 })()
 
+/**
+ * 版本号以 lib/version.mjs 为准（手机上 ../package.json 常常读不到，读不到就变成 0.0.0，
+ * 会让"当前版本"显示错、还会让检查更新永远误报"发现新版本"）。
+ * 两个地方不一致时，这里会在日志里提醒一句。
+ */
+const VERSION = APP_VERSION
+
 const API_PREFIX = '/api/bili-console'
 const PAGE_PREFIX = '/bili-console'
+
+/**
+ * 在系统默认浏览器里打开一个网址（主要是给手机用的那一版）。
+ * 安卓优先走 `am start`——它发的是 ACTION_VIEW 意图，会交给用户在系统设置里选的那个默认浏览器。
+ *
+ * ⚠️ 铁律：这里绝不能用 spawnSync/execSync。插件挂在宿主 webServer 进程上，
+ *    同步等一条外部命令会把整个界面冻住（2026-10-30 用 apt/pip 踩过，直接把 DSH 搞崩），
+ *    所以一律 await 异步 + 超时。
+ *
+ * @returns {Promise<{ok:boolean, method:string}>} ok=true 表示确实把浏览器拉起来了
+ */
+async function launchSystemBrowser(rawUrl) {
+  // 只认 http/https 的本机地址，并把 shell 里危险符号全部剔除，防止被拼进命令行
+  const u = String(rawUrl || '').replace(/["'$\\`|;&<>(){}\n\r]/g, '')
+  if (!/^https?:\/\/[a-zA-Z0-9._:[\]-]+(\/|$)/.test(u)) return { ok: false, method: '' }
+  const { promisify } = await import('node:util')
+  const { execFile } = await import('node:child_process')
+  const run = promisify(execFile)
+  const candidates = process.platform === 'win32'
+    ? [['cmd', ['/c', 'start', '', u], 'win.start']]
+    : process.platform === 'darwin'
+      ? [['open', [u], 'mac.open']]
+      : [
+        // ①安卓系统 Activity 管理器：会走默认浏览器
+        ['/system/bin/sh', ['-c', `am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "${u}" 2>&1`], 'android.am'],
+        // ②新版安卓的 cmd 命令（部分机器没有 am）
+        ['/system/bin/sh', ['-c', `cmd activity start-activity -a android.intent.action.VIEW -d "${u}" 2>&1`], 'android.cmd'],
+        // ③Termux 环境
+        ['termux-open', [u], 'termux.open'],
+        // ④桌面 Linux
+        ['xdg-open', [u], 'linux.xdg-open'],
+      ]
+  for (const [bin, args, method] of candidates) {
+    try {
+      const r = await run(bin, args, { timeout: 4000, windowsHide: true })
+      const out = String((r && r.stdout) || '') + String((r && r.stderr) || '')
+      // 报错样例：Error type 3 / Error: Activity not found / am: not found / Failure [...]
+      if (/error|exception|not found|no such file|failure|denied|不可用/i.test(out)) continue
+      return { ok: true, method }
+    } catch { /* 这个办法不行就试下一个 */ }
+  }
+  return { ok: false, method: '' }
+}
 
 /** 「它遵守的规矩」——安全防护页展示用（完整版在 prompts/duty.md） */
 const CHARTER_HIGHLIGHTS = [
@@ -184,8 +235,8 @@ export function apply(ctx, _config) {
     const chain = buildEndpoints(cfgNow, extractHostModels())
     return {
       ok: true, home, now: new Date().toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' }),
-      version: PKG.version || '0.0.0',
-      update: snapshot(PKG.version || '0.0.0'),
+      version: VERSION || '0.0.0',
+      update: snapshot(VERSION || '0.0.0'),
       haveYaml: true,
       safeMode, noAdapter: false,
       status: { phase: '值守中', label: guardian.active() ? '风控冷却中' : '控制台在线', tone: guardian.active() ? 'warn' : 'ok' },
@@ -239,7 +290,7 @@ export function apply(ctx, _config) {
     // POST /update/check  —— 真去查一次（body: {force:true, mode?, custom?}）
     // POST /update/option —— 保存选中的加速源 / 自动检查开关
     if (req.method === 'GET' && path === '/update/state') {
-      return sendJson(res, 200, { ok: true, ...snapshot(PKG.version || '0.0.0') })
+      return sendJson(res, 200, { ok: true, ...snapshot(VERSION || '0.0.0') })
     }
     if (req.method === 'POST' && path === '/update/option') {
       const b = await readBody(req)
@@ -249,7 +300,7 @@ export function apply(ctx, _config) {
     if (req.method === 'POST' && path === '/update/check') {
       const b = await readBody(req)
       if (b.mode !== undefined || b.custom !== undefined) setUpdateOption(home, { mode: b.mode, custom: b.custom })
-      const r = await checkUpdate({ current: PKG.version || '0.0.0', home, force: b.force !== false })
+      const r = await checkUpdate({ current: VERSION || '0.0.0', home, force: b.force !== false })
       return sendJson(res, 200, { ok: true, ...r })
     }
     if (req.method === 'GET' && path === '/rawlog') {
@@ -402,7 +453,7 @@ export function apply(ctx, _config) {
         venv: venvStatus(home),
         venvReady: (() => { const v = venvStatus(home); return Boolean(v.venvReady || v.baseWithDeps) })(),
         mcpServerExists: BiliMcp.serverExists(),
-        version: PKG.version || '0.0.0',
+        version: VERSION || '0.0.0',
         pickedToday: stt.picked || 0,
         ranToday: stt.count || 0,
         lastRunAt: stt.lastRunAt || 0,
@@ -469,7 +520,7 @@ export function apply(ctx, _config) {
       try { tail = tailLines(readFileSync(join(home, 'duty.log'), 'utf8'), 40).join('\n') } catch { tail = '（还没有日志）' }
       const login = loginStatus(home)
       const text = [
-        `dsh-bili-console 诊断 · v${PKG.version}`,
+        `dsh-bili-console 诊断 · v${VERSION}`,
         `家目录：${home}`,
         `python / MCP 服务：${BiliMcp.serverExists() ? '脚本在（首次调用自动起）' : '没找到脚本'}`,
         `B站登录：${login.loggedIn ? '已登录' : '未登录'}`,
@@ -501,14 +552,13 @@ export function apply(ctx, _config) {
           //    故只传相对路径；这里用请求头里的 host 拼成完整 http 地址，系统浏览器才打得开。
           let u = String(body.u)
           if (u.startsWith('/')) u = 'http://' + (req.headers.host || '127.0.0.1:19387') + u
-          const safe = u.replace(/"/g, '')
-          // Windows: start；macOS: open；Linux/Android 容器：xdg-open 没有就试 am start（安卓意图）。
-          // 手机容器多半调不起系统浏览器 → 无论成败都把完整 url 交回前端展示/复制（2026-10-30 手机端修）。
-          const cmd = process.platform === 'win32' ? `start "" "${safe}"`
-            : process.platform === 'darwin' ? `open "${safe}"`
-            : `(xdg-open "${safe}" || am start -a android.intent.action.VIEW -d "${safe}") >/dev/null 2>&1`
-          try { exec(cmd, () => {}) } catch { /* 打不开不致命，前端会展示 url */ }
-          return sendJson(res, 200, { ok: true, opened: u, url: u, platform: process.platform })
+          // 手机上要真把「系统默认浏览器」拉起来：安卓走 ACTION_VIEW 意图，
+          // 实在拉不起也必须把完整地址交给前端，让它用 <intent://> 再试一次。
+          const launch = await launchSystemBrowser(u)
+          return sendJson(res, 200, {
+            ok: true, opened: u, url: u, platform: process.platform,
+            launched: launch.ok, method: launch.method || '',
+          })
         }
         const dir = body.what === 'out' ? join(home, 'out') : home
         exec(`explorer "${dir.replace(/"/g, '')}"`)
@@ -542,14 +592,16 @@ export function apply(ctx, _config) {
         try { await handle(req, res) } catch (e) { sendJson(res, 500, { ok: false, error: e?.message ?? String(e) }) }
       },
     }), 'bili-console: /bili-console 页面路由')
-    log(`已挂载（家=${home}，v${PKG.version}）`)
+    log(`已挂载（家=${home}，v${VERSION}）`)
+    // 版本号以 lib/version.mjs 为准；package.json 是给外面看的，两者若不一致会让人装错版本，这里提醒一句
+    try { if (PKG.version && PKG.version !== VERSION) log(`版本号不一致：lib/version.mjs 是 ${VERSION}，package.json 是 ${PKG.version} —— 发新版请两边一起改`) } catch {}
     logLine(home, '已挂载（网页控制台在线）')
 
     // 版本自检：开插件时悄悄查一次，之后每 6 小时一次。全程 unref + try/catch，
     // 失败了也不吭声（界面上会有"没查到，试试换个加速源"的提示，不打扰、更不会拖慢插件）
     try {
       initUpdate(home)
-      const SELF = PKG.version || '0.0.0'
+      const SELF = VERSION || '0.0.0'
       const tick = () => {
         checkUpdate({ current: SELF, home }).then((r) => {
           if (r && r.hasUpdate) log(`发现新版本 v${r.latest}（当前 v${SELF}）：${r.url}`)

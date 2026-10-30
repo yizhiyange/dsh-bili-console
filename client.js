@@ -666,13 +666,53 @@ window.__ModuleLoader__.load({
         try { const el = document.getElementById('bd-weburl'); if (el) { el.focus(); el.select() } } catch {}
         toast_('已选中地址，长按即可复制')
       }
+      /**
+       * 【手机版】把地址交给「系统默认浏览器」打开，而不是 DSH 自带的内嵌网页窗口。
+       * 做法：拼一个安卓 Intent URI，`intent://<host><path>#Intent;scheme=http;action=...VIEW;end`
+       *       —— 它会去问系统"谁能看 http"，也就是用户在设置里选的默认浏览器。
+       * ⚠️ 千万不要用 `window.location.href = intent://…`！一旦系统不认这个协议，
+       *    会把 DSH 整个界面顶掉、变成一片空白（用户最烦的那个"界面消失"就是这么来的）。
+       *    用 <a target="_blank"> 点一下：认不出来就悄悄失败，当前页面分毫不动。
+       * @returns {Promise<boolean>} 是不是成功跳出去了
+       */
+      const launchMobileIntent = (url) => {
+        try {
+          const m = String(url).match(/^https?:\/\/([^/]+)(\/.*)?$/)
+          if (!m) return false
+          const intent = 'intent://' + m[1] + (m[2] || '/')
+            + '#Intent;scheme=http;action=android.intent.action.VIEW'
+            + ';category=android.intent.category.BROWSABLE'
+            + ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end'
+          const a = document.createElement('a')
+          a.href = intent; a.target = '_blank'; a.rel = 'noopener'
+          a.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden'
+          document.body.appendChild(a)
+          a.click()
+          setTimeout(() => { try { a.remove() } catch {} }, 1000)
+          return true
+        } catch { return false }
+      }
+      /** 点了以后有没有真的跳出去？——页面被切到后台就说明浏览器接管了 */
+      const waitedForLeave = (ms) => new Promise((res) => {
+        let done = false
+        const finish = (v) => { if (!done) { done = true; try { document.removeEventListener('visibilitychange', onVis) } catch {}; res(v) } }
+        const onVis = () => { if (document.visibilityState === 'hidden') finish(true) }
+        try { document.addEventListener('visibilitychange', onVis) } catch {}
+        setTimeout(() => finish(false), ms || 1200)
+      })
       const openConsole = async () => {
         try {
           const r = await jpost('/open', { what: 'url', u: '/bili-console' })
           const url = (r && (r.url || r.opened)) || ''
           if (!url) { toast_('打开失败：服务器没返回地址，请手动访问 /bili-console'); return }
-          if (r && r.platform === 'win32') { toast_('已用系统浏览器打开：' + url); return } // 桌面端系统已帮忙打开
-          // 手机/容器：webview 里 window.prompt 靠不住（不弹也不报错），直接把地址摆在页面上
+          // ── 电脑（Windows / 桌面版）：服务器已经用 start / open 帮你开了系统浏览器，这里一个字都不改 ──
+          if (r && r.platform === 'win32') { toast_('已用系统浏览器打开：' + url); return }
+          const isAndroid = /android/i.test(navigator.userAgent || '')
+          if (!isAndroid) { toast_('已请系统打开：' + url); return }   // macOS / 桌面 Linux
+          // ── 手机版：真把默认浏览器拉起来 ──
+          if (r && r.launched) { toast_('已用手机默认浏览器打开'); return }  // 后端 am start / xdg-open 成功了
+          if (launchMobileIntent(url) && await waitedForLeave(1400)) { toast_('已用手机默认浏览器打开'); return }
+          // 实在拉不起才把地址摆出来（兜底，正常情况下你根本看不到这步）
           setWebUrl(url); setWebOpen(true)
         } catch { toast_('打开失败，请手动在浏览器打开 /bili-console') }
       }
