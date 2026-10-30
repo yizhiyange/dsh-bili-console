@@ -197,6 +197,9 @@ window.__ModuleLoader__.load({
     [data-bd-mchip].sel .vb{background:rgba(255,255,255,.25);color:#fff;}
     [data-bd-field]{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
     [data-bd-field] label{font-size:12px;color:var(--t2);} [data-bd-field] .hint{font-size:11px;color:var(--t2);}
+    [data-bd-formgrid]{display:grid;grid-template-columns:1fr 1fr;column-gap:18px;}
+    [data-bd-page].narrow [data-bd-formgrid]{grid-template-columns:1fr;}
+    [data-bd-errpage]{padding:16px 0;}
     [data-bd-radio]{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--off);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;}
     [data-bd-radio].on{border-color:var(--blue);} [data-bd-radio].on::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--blue);}
     textarea[data-bd-persona]{width:100%;min-height:420px;border:1px solid var(--line);border-radius:8px;padding:14px;font-size:12.5px;line-height:1.8;resize:vertical;background:var(--surface);color:var(--t1);}
@@ -402,6 +405,23 @@ window.__ModuleLoader__.load({
           h('div', { className: 'src' }, srcTag),
           arrows)
       }))
+    }
+
+    /* 错误边界：任何一个页面渲染炸了，就挡在这里显示报错，而不是让整个控制台白屏（白屏就得重启 DSH） */
+    class PageBoundary extends React.Component {
+      constructor(p) { super(p); this.state = { err: null } }
+      static getDerivedStateFromError(err) { return { err: err || new Error('未知渲染错误') } }
+      componentDidCatch(err, info) { try { console.error('[bili-console] 页面渲染异常，已拦截（无需重启 DSH）：', err, info) } catch (_) {} }
+      render() {
+        if (this.state.err) {
+          return h('div', { 'data-bd-errpage': '' },
+            h('div', { 'data-bd-banner': '', className: 'err' }, '这个页面渲染出错了，已自动拦住（不用重启 DSH）。错误：' + String((this.state.err && this.state.err.message) || this.state.err)),
+            h('div', { style: { display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap' } },
+              h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: () => this.setState({ err: null }) }, '重试这一页'),
+              h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: () => { this.setState({ err: null }); if (this.props.onHome) this.props.onHome() } }, '回总览')))
+        }
+        return this.props.children
+      }
     }
 
     /* ────────────── 主组件 ────────────── */
@@ -910,6 +930,48 @@ window.__ModuleLoader__.load({
         // 识图模型：插件里没有任何地方调用它，先不占位
       }
 
+      const renderAddModel = () => {
+        const provs = [['deepseek', 'DeepSeek'], ['glm', '智谱 GLM'], ['qwen', '通义千问'], ['other', '其他 / 自建']]
+        const onAdd = () => {
+          const url = String(mUrl || '').trim().replace(/\/+$/, '')
+          const names = String(mModel || '').split(/[,，\n、]+/).map((s) => s.trim()).filter(Boolean)
+          if (!url || !names.length) { toast_('API 地址和模型名都要填'); return }
+          if (mKeySrc === 'custom' && !mKey) { toast_('选了「自己填 key」就得填 key'); return }
+          const list = names.map((n, idx) => ({
+            id: 'm' + Date.now() + '_' + idx,
+            provider: mProv || 'deepseek',
+            displayName: names.length > 1 ? ((mName || mProv || 'model') + ' · ' + n) : (mName || n),
+            apiUrl: url,
+            modelName: n,
+            apiKeySource: mKeySrc || 'custom',
+            customKey: mKeySrc === 'custom' ? mKey : '',
+            addToChain: mChain,
+          }))
+          addModels(list).then(() => { setMModel(''); setMKey(''); setMName('') })
+        }
+        return h('div', { 'data-bd-addmodel': '' },
+          h('div', { 'data-bd-formgrid': '' },
+            h('div', { 'data-bd-field': '' }, h('label', null, '供应商'),
+              Select({ value: mProv, onChange: (v) => { setMProv(v); setMUrl(PROV_URLS[v] != null ? PROV_URLS[v] : '') } },
+                provs.map(([v, label]) => h('option', { value: v, key: v }, label)))),
+            h('div', { 'data-bd-field': '' }, h('label', null, 'API 地址'),
+              Input({ value: mUrl || '', onChange: setMUrl, placeholder: 'https://…/v1' })),
+            h('div', { 'data-bd-field': '' }, h('label', null, '显示名称'),
+              Input({ value: mName || '', onChange: setMName, placeholder: '我的主模型' })),
+            h('div', { 'data-bd-field': '' }, h('label', null, '模型名（可多个）'),
+              Input({ value: mModel || '', onChange: setMModel, placeholder: 'deepseek-v4-pro, deepseek-v4.1-flash' }),
+              h('span', { className: 'hint' }, '同一个 key 下多个模型用逗号或换行分开')),
+            h('div', { 'data-bd-field': '' }, h('label', null, '密钥来源'),
+              Select({ value: mKeySrc, onChange: setMKeySrc },
+                [['custom', '自己填 key'], ['preset', '用 DSH 里已有的 key（同供应商）']].map(([v, label]) => h('option', { value: v, key: v }, label)))),
+            h('div', { 'data-bd-field': '' }, h('label', null, 'API Key'),
+              Input({ value: mKey || '', onChange: setMKey, placeholder: 'sk-…', type: 'password' }))),
+          h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--t2)', marginTop: '4px' } },
+            h('input', { type: 'checkbox', checked: mChain, onChange: (e) => setMChain(Boolean(e.target.checked)) }), '同时加入降级链'),
+          h('div', { style: { marginTop: '12px' } },
+            h('button', { 'data-bd-btn': '', className: 'primary sm', onClick: onAdd }, '加入模型')))
+      }
+
       const renderLogs = () => {
         const items = (rawlog || []).filter((l) => (logLv === 'ALL' || l.lv === logLv) && (!search.trim() || (l.msg || '').toLowerCase().indexOf(search.trim().toLowerCase()) >= 0))
         const box = h('div', { 'data-bd-logbox': '' }, items.length
@@ -1155,7 +1217,7 @@ window.__ModuleLoader__.load({
       }
 
       const PAGERENDER = { overview: renderOverview, models: renderModels, logs: renderLogs, persona: renderPersona, chain: renderChain, safety: renderSafety, settings: renderSettings }
-      const content = h('div', { 'data-bd-content': '' }, (PAGERENDER[page] || renderOverview)())
+      const content = h(PageBoundary, { onHome: () => setPage('overview') }, h('div', { 'data-bd-content': '' }, (PAGERENDER[page] || renderOverview)()))
 
       const modal = h('div', { 'data-bd-mask': '', className: login.open ? 'show' : undefined },
         h('div', { 'data-bd-modal': '' },
