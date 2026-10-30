@@ -121,6 +121,9 @@ window.__ModuleLoader__.load({
     [data-bd-btn].sm{padding:5px 10px;font-size:11px;}
     [data-bd-btn]:disabled{opacity:.45;cursor:not-allowed;}
     [data-bd-link]{color:var(--blue);font-size:12px;font-weight:600;background:none;} [data-bd-link]:hover{text-decoration:underline;}
+    [data-bd-weburl-link]{display:inline-block;margin:6px 0;color:var(--blue);font-weight:600;font-size:14px;word-break:break-all;}
+    [data-bd-weburl-link]:hover{text-decoration:underline;}
+    [data-bd-weburl]{width:100%;height:40px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--gray-bg);font-size:13px;color:var(--t1);}
 
     [data-bd-sw]{flex:none;width:44px;height:24px;border-radius:12px;border:0;cursor:pointer;position:relative;padding:0;background:var(--off);transition:background .15s;}
     [data-bd-sw][data-on]{background:var(--blue);} [data-bd-sw] i{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s;display:block;box-shadow:0 1px 2px rgba(0,0,0,.2);}
@@ -474,6 +477,9 @@ window.__ModuleLoader__.load({
       const [mentionDraft, setMentionDraft] = React.useState(null)
       const [dmUidDraft, setDmUidDraft] = React.useState(null)
       const [favDraft, setFavDraft] = React.useState(null)
+      // 网页版控制台地址面板（手机端 window.prompt 不可靠，改用页面内可见面板）
+      const [webUrl, setWebUrl] = React.useState('')
+      const [webOpen, setWebOpen] = React.useState(false)
 
       React.useEffect(() => () => {
         alive.current = false
@@ -649,16 +655,20 @@ window.__ModuleLoader__.load({
       }
 
       /* ── 打开网页版控制台（系统浏览器）── */
+      const copyWebUrl = async () => {
+        try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(webUrl); toast_('已复制地址'); return } } catch {}
+        // 回退：聚焦并全选只读输入框，让用户长按复制
+        try { const el = document.getElementById('bd-weburl'); if (el) { el.focus(); el.select() } } catch {}
+        toast_('已选中地址，长按即可复制')
+      }
       const openConsole = async () => {
         try {
           const r = await jpost('/open', { what: 'url', u: '/bili-console' })
-          if (r && r.ok && r.platform === 'win32') { toast_('已用系统浏览器打开：' + (r.url || r.opened || '/bili-console')); return }
-          if (r && r.url) {
-            // 手机/容器多半调不起浏览器：把完整地址摆出来让人复制（2026-10-30 手机端修）
-            try { window.prompt('手机上请长按复制这个地址，到浏览器打开：', r.url); return } catch { /* prompt 不可用就走 toast */ }
-            toast_('请用手机浏览器打开：' + r.url); return
-          }
-          toast_('打开失败，请手动访问 /bili-console')
+          const url = (r && (r.url || r.opened)) || ''
+          if (!url) { toast_('打开失败：服务器没返回地址，请手动访问 /bili-console'); return }
+          if (r && r.platform === 'win32') { toast_('已用系统浏览器打开：' + url); return } // 桌面端系统已帮忙打开
+          // 手机/容器：webview 里 window.prompt 靠不住（不弹也不报错），直接把地址摆在页面上
+          setWebUrl(url); setWebOpen(true)
         } catch { toast_('打开失败，请手动在浏览器打开 /bili-console') }
       }
       const openFolder = async (what) => {
@@ -1228,6 +1238,16 @@ window.__ModuleLoader__.load({
           h('div', { className: 'hint' }, login.status || '用 B站 App 扫码，180 秒内有效'),
           h('div', { style: { display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '12px' } }, h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: closeLogin }, '关闭'))))
 
+      const webPanel = h('div', { 'data-bd-mask': '', className: webOpen ? 'show' : undefined, onClick: (e) => { if (e.target === e.currentTarget) setWebOpen(false) } },
+        h('div', { 'data-bd-modal': '' },
+          h('div', { style: { fontSize: '15px', fontWeight: 700 } }, '网页版控制台地址'),
+          h('div', { className: 'hint' }, '在手机浏览器里打开这个地址即可用完整网页版；点下面的链接可直接跳转，或长按地址框复制。'),
+          webUrl ? h('a', { 'data-bd-weburl-link': '', href: webUrl, target: '_blank', rel: 'noopener' }, '点我打开网页版 ↗') : null,
+          h('input', { id: 'bd-weburl', 'data-bd-weburl': '', value: webUrl, readOnly: true, onFocus: (e) => { try { e.target.select() } catch {} } }),
+          h('div', { style: { display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '12px' } },
+            h('button', { 'data-bd-btn': '', className: 'primary sm', onClick: copyWebUrl }, '复制地址'),
+            h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: () => setWebOpen(false) }, '关闭'))))
+
       const toastEl = h('div', { 'data-bd-toast': '', className: toast ? 'show' : undefined }, toast)
 
       return h('div', { 'data-bd-page': '', ref: rootRef, className: narrow ? 'narrow' : '' },
@@ -1236,7 +1256,7 @@ window.__ModuleLoader__.load({
         banner,
         h('div', { 'data-bd-main': '' }, sidebar, content),
         h('div', { 'data-bd-foot': '' }, '插件目录：' + (st.home || '—') + ' · 本地服务 127.0.0.1 · 每 2 秒自动刷新 · 最近更新 ' + (st.now || '')),
-        modal, toastEl)
+        modal, webPanel, toastEl)
     }
 
     return {
