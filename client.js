@@ -702,6 +702,31 @@ window.__ModuleLoader__.load({
         return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); try { document.removeEventListener('visibilitychange', onVis) } catch {} }
       }, [!!(state?.settings?.lowPower)])
 
+      /** 把素材库导出到手机可见目录（proot 路径用户在文件管理器里看不到） */
+      const exportAssets = async () => {
+        try {
+          const r = await jpost('/export', { what: 'assets' })
+          if (!r || !r.ok) return toast_('导出失败：' + ((r && r.error) || ''))
+          toast_('已导出 ' + (r.copied || 0) + ' 个到：' + r.dest)
+        } catch (e) { toast_('导出失败：' + String(e?.message ?? e)) }
+      }
+      /** 从手机目录把文件导进素材库 */
+      const importAssets = async () => {
+        try {
+          const r = await jpost('/import-assets', {})
+          if (!r || !r.ok) return toast_('导入失败：' + ((r && r.error) || ''))
+          toast_(r.copied ? ('已从手机导入 ' + r.copied + ' 个素材') : '手机目录里没找到图片/音频（先从文件管理器放进 dsh-bili-console 文件夹）')
+          try { loadAssets() } catch { /* 列表稍后刷新 */ }
+        } catch (e) { toast_('导入失败：' + String(e?.message ?? e)) }
+      }
+      /** 把某个视频导出到手机（并尝试用系统播放器打开） */
+      const exportVideo = async (name) => {
+        try {
+          const r = await jpost('/export', { what: 'video', name })
+          if (!r || !r.ok) return toast_('导出失败：' + ((r && r.error) || ''))
+          toast_('已导出到：' + r.dest + (r.opened ? '（已用系统播放器打开）' : ''))
+        } catch (e) { toast_('导出失败：' + String(e?.message ?? e)) }
+      }
       /** 内存状况 + 手动释放（运行内存，不是磁盘空间） */
       /** 一键套用音色预设：四个参数一起设好，然后立刻试听 */
       /** 配音试听：拿当前声线/语速/音调/音量念一句，直接播 */
@@ -789,12 +814,19 @@ window.__ModuleLoader__.load({
             const title = document.createElement('div')
             title.style.cssText = 'font-size:12px;color:var(--t2);margin-bottom:6px;word-break:break-all'
             title.textContent = f.name + '（' + Math.round((f.size || 0) / 1024) + 'KB）'
-            const v = document.createElement('video')
-            v.controls = true; v.playsInline = true; v.preload = 'metadata'
-            v.style.cssText = 'width:100%;max-height:240px;border-radius:6px;background:#000'
-            v.src = API + '/publish/video-file?n=' + encodeURIComponent(f.name)
-            wrap.appendChild(title); wrap.appendChild(v)
-            box.appendChild(wrap)
+              const v = document.createElement('video')
+              v.controls = true; v.playsInline = true; v.preload = 'metadata'
+              v.style.cssText = 'width:100%;max-height:240px;border-radius:6px;background:#000'
+              v.src = API + '/publish/video-file?n=' + encodeURIComponent(f.name)
+              const bar = document.createElement('div')
+              bar.style.cssText = 'display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center'
+              const exp = document.createElement('button')
+              exp.className = 'ghost sm'
+              exp.textContent = '📤 导出到手机并播放'
+              exp.onclick = () => exportVideo(f.name)
+              bar.appendChild(exp)
+              wrap.appendChild(title); wrap.appendChild(v); wrap.appendChild(bar)
+              box.appendChild(wrap)
           }
         } catch { /* 列表拿不到就算了 */ }
       }
@@ -2221,7 +2253,9 @@ window.__ModuleLoader__.load({
               on: !!cfg.useAssets, onChange: (v) => saveOne('useAssets', v),
             }),
             h('div', { style: { display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' } },
-              h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: openAssets }, '打开素材文件夹'),
+              h('button', { 'data-bd-btn': '', className: 'primary sm', onClick: exportAssets }, '📤 导出到手机（文件管理器能看见）'),
+              h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: importAssets }, '📥 从手机导入'),
+              h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: openAssets }, '打开插件内目录'),
               h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: loadAssets }, '刷新列表')),
             h('div', { 'data-bd-assets': '', style: { marginTop: '8px', fontSize: '12px', color: 'var(--t2)', lineHeight: 1.8 } }, '')),
           Card({ title: '画面生成模型（可选，进阶）', sub: '用文生图接口给每张卡片画背景图；不填就用纯色卡片' },
