@@ -728,7 +728,7 @@ window.__ModuleLoader__.load({
           const mb = (b) => (Math.round((Number(b) || 0) / 1048576 * 10) / 10) + 'MB'
           const m = r && r.mem
           const p = (r && r.power) || {}
-          let html = '插件进程现在占：' + mb(r && r.rss)
+          let html = '宿主进程（DSH + 插件）现在占：' + mb(r && r.rss)
           if (m) {
             html += '<br>手机可用内存：' + mb(m.available) + ' / 共 ' + mb(m.total)
             if (m.swapTotal > 0) html += '<br>系统已在用交换内存：' + mb(m.swapTotal - m.swapFree) + ' / ' + mb(m.swapTotal) + '（不用我们再弄）'
@@ -2209,7 +2209,7 @@ window.__ModuleLoader__.load({
                 h('option', { value: '' }, '自动'),
                 (((st.chain && st.chain.endpoints) || []).map((e) => h('option', { value: e.id, key: e.id }, e.label || e.model || e.id))))),
             ToggleRow({ label: '省电模式（针对手机）', note: '开了之后：①界面轮询从 2 秒放慢到 6 秒、手机在后台（锁屏/切 App）时完全不打请求；②私信监察间隔放宽到 3 倍；③渲染时限制 ffmpeg 单线程 + ultrafast，不再把 CPU 吃满（文件会大 10~20%，画质肉眼看不出）。想边打游戏边跑就开这个', on: !!cfg.lowPower, onChange: (v) => saveOne('lowPower', v) })),
-            Card({ title: '内存（运行内存，不是存储空间）', sub: '手机上看这个最有用：占用一大，系统就会把你后台的插件杀掉' },
+            Card({ title: '内存（运行内存，不是存储空间）', sub: '注意：这里显示的是宿主进程总量（DSH 本体 + 本插件），不是插件单独占的' },
               h('div', { 'data-bd-meminfo': '', style: { fontSize: '12px', color: 'var(--t2)', lineHeight: 1.9 } }, '读取中…'),
               h('div', { style: { display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' } },
                 h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: doFreeMemory }, '🧹 释放一下'),
