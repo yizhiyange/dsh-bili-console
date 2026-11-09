@@ -780,7 +780,12 @@ export function apply(ctx, _config) {
       }
       if ('remoteHost' in b) patch.remoteHost = ['0.0.0.0', '127.0.0.1'].includes(String(b.remoteHost)) ? String(b.remoteHost) : '0.0.0.0'
       if ('remoteToken' in b) patch.remoteToken = String(b.remoteToken || '').trim().slice(0, 128)
-      const changed = saveConfig(home, patch)
+      // 独立版(standalone)把遥控配置写进 DSH 的家目录：真正监听 8792 的门卫是 DSH 进程起的，
+      // 配置必须落在它读的那份文件里，独立版自己"关小门 / 切只读"才会真的生效，而不是写进隔离副本石沉大海
+      const remoteCfgHome = process.env.BILI_STANDALONE
+        ? (process.env.BILI_STANDALONE_DSH_HOME || join(homedir(), '.dsh', 'bili-console'))
+        : home
+      const changed = saveConfig(remoteCfgHome, patch)
       // 立刻生效，不等 5 秒轮询；current() 会在第一次开启时自动铸口令
       try { remoteCtl?.sync() } catch {}
       return sendJson(res, 200, { ok: true, changed, ...(remoteCtl ? remoteCtl.snapshot() : remoteSnapshot(home)) })
@@ -2004,8 +2009,13 @@ export function apply(ctx, _config) {
 
     // QQ 遥控门卫：默认关。开了才另起一个带口令的小端口，只认白名单动作；
     // 关着的时候一个端口都不监听，电脑版原有行为不变。
+    // 独立版(standalone)运行时：门卫由 DSH 进程独占监听 8792，这里只把遥控配置
+    // 共享到 DSH 的 home（~/.dsh/bili-console），自己不再监听端口，避免和 DSH 抢端口——
+    // 这样独立版面板也能真正开关那扇门，又不会两套门卫打架。
     try {
-      remoteCtl = startRemote({ home, handle, log: (m) => logLine(home, m) })
+      const remoteHome = process.env.BILI_STANDALONE ? (process.env.BILI_STANDALONE_DSH_HOME || join(homedir(), '.dsh', 'bili-console')) : home
+      const noListen = !!process.env.BILI_STANDALONE
+      remoteCtl = startRemote({ home: remoteHome, handle, log: (m) => logLine(home, m), noListen })
       ctx.effect(() => remoteCtl.stop, 'bili-console: QQ 遥控门卫')
     } catch (e) { log(`QQ 遥控没起来（不影响主功能）：${e?.message ?? e}`) }
 

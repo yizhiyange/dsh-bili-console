@@ -3381,10 +3381,19 @@ window.__ModuleLoader__.load({
                   (r.error ? ('\n启动失败：' + r.error) : ''))
                 : '关着时不监听任何端口。打开后，机器人就能隔着门看状态、命令刷视频（要口令）。',
               r.listening && (r.urls || []).length ? ('\n\n本机可用：127.0.0.1:' + (r.port || '') + '；局域网：' + r.urls.join('、')) : ''),
+            r.on ? h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' } },
+              Tag({ c: r.readOnly ? 'green' : 'red', children: r.readOnly ? '只读模式 · 只看不干（安全）' : '可写模式 · 允许干活（有风险）' }),
+              Tag({ c: 'gray', children: '点右边按钮切换' })) : null,
             h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } },
-              h('button', { className: r.on ? 'ghost sm' : 'primary sm', onClick: () => saveRemote({ remoteOn: !r.on }) },
+              h('button', { className: r.on ? 'danger sm' : 'primary sm', onClick: () => saveRemote({ remoteOn: !r.on }) },
                 r.on ? '关掉小门' : '打开小门'),
-              r.on ? h('button', { className: 'ghost sm', onClick: () => saveRemote({ remoteReadOnly: !r.readOnly }) },
+              r.on ? h('button', {
+                  className: 'sm',
+                  style: r.readOnly
+                    ? { background: 'var(--amber)', borderColor: 'var(--amber)', color: '#3a2c00', fontWeight: 600 }
+                    : { background: 'var(--green)', borderColor: 'var(--green)', color: '#fff', fontWeight: 600 },
+                  onClick: () => saveRemote({ remoteReadOnly: !r.readOnly }),
+                },
                 r.readOnly ? '关掉「只看不干」（允许干活）' : '设为「只看不干」') : null)),
           Card({ title: '口令与地址（给机器人插件填）', sub: '两样东西填进 AstrBot 的桥接插件就能用；同一台机器填 127.0.0.1 那个地址最稳' },
             h('div', { style: { fontFamily: 'ui-monospace, monospace', fontSize: '13px', whiteSpace: 'pre-wrap', wordBreak: 'break-all' } },
