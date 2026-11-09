@@ -28,3 +28,25 @@ Thumbs.db
 # 临时文件
 *.log
 *.tmp
+
+# 调试 / 测试草稿（不进仓库）
+.video/
+_autopublish_test.mjs
+_check_at.py
+_live_state.json
+_live_state.mjs
+_login_test.mjs
+_real_probe.mjs
+_sync_standalone.mjs
+_t2.mjs
+_ui_harness.html
+_ui_probe.mjs
+_verify_login.py
+_verify_split.mjs
+_web_test.mjs
+_web3.png
+client.js.bak-*
+index.js.bak-*
+prompts/duty.md.bak-*
+qrcode_login_stable.png
+vendor/bilibili-mcp/login_debug.json
