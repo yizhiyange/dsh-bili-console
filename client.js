@@ -34,7 +34,7 @@ window.__ModuleLoader__.load({
     const PAGE_ORDER = [
       ['overview', '总览'], ['find', '找视频'], ['models', '模型与密钥'], ['logs', '专业日志'],
       ['persona', '人设'], ['chain', '降级链'], ['safety', '安全防护'],
-      ['comments', '评论'], ['publish', '发布'], ['qq', 'QQ 接入'], ['settings', '设置'], ['env', '环境与更新'],
+      ['comments', '评论'], ['publish', '发布'], ['qq', 'QQ 接入'], ['wild', '为所欲为'], ['settings', '设置'], ['env', '环境与更新'],
     ]
 
     const API = '/api/bili-console'
@@ -3409,10 +3409,64 @@ window.__ModuleLoader__.load({
               ['看状态', '看最近刷的视频', '看发过的评论/动态', '看日报', '命令刷一轮', '试跑（只挑不发）', '停止', '发动态', '查回私信', '撤回最近几条评论'].join(' · '))))
       }
 
+      /* ===== 为所欲为（wild）：独立顶层页（2026-11-13 新增） =====
+       * 打开 = 全自动自己逛 B站（首页推荐流自己挑，不靠关键词），评论/点赞/投币/发动态，直到关掉。
+       * 与 QQ 遥控的「为所欲为」是两回事：QQ 那边是有人下令才动。 */
+      function renderWild() {
+        const on = !!cfg.wildMode
+        const perDay = Math.max(1, Number(cfg.wildPerDay) || 20)
+        const perRound = Math.max(1, Number(cfg.wildPerRound) || 5)
+        const gap = Math.max(1, Number(cfg.wildInterval) || 10)
+        const numRow = (label, key, val, unit, min, max) => h('div', { 'data-bd-setrow': '' },
+          h('div', { 'data-bd-txt': '' },
+            h('div', { 'data-bd-lb': '' }, label),
+            h('div', { 'data-bd-ds': '' }, '当前 ' + val + (unit || ''))),
+          h('div', { style: { display: 'flex', gap: '6px' } },
+            h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: () => saveOne(key, Math.max(min, val - 1), label) }, '−'),
+            h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: () => saveOne(key, Math.min(max, val + 1), label) }, '+')))
+        const runWildOnce = async () => {
+          try { const r = await jpost('/run/wild', {}); toast_(r.message || (r.ok ? '已开始，去「总览」看活动流' : '没开始')) }
+          catch (e) { toast_('没跑起来：' + String(e?.message ?? e)) }
+        }
+        const stopAll = async () => {
+          try { const r = await jpost('/run/stop', {}); toast_(r.message || '已叫停') }
+          catch (e) { toast_('停止失败：' + String(e?.message ?? e)) }
+        }
+        return h('div', {},
+          Card({
+            title: '为所欲为模式',
+            sub: '打开它就自己逛 B站：自己挑视频、自己评论/点赞/投币/发动态，直到你关掉',
+            right: Tag({ c: on ? 'red' : 'gray', children: on ? '野着跑中' : '关着' }),
+          },
+            h('div', { 'data-bd-callout': '' },
+              '它怎么干活：不用你给关键词，直接逛首页推荐流自己挑；挑中就评论，顺手点赞+投币（受每日投币上限约束），还会发一条图文动态。',
+              '\n保险在后台定死了：触发风控冷却就停手、每天有总量上限、每条都记进「评论」页和日报；总览里的「自动值守总开关」一关，它也跟着停。'),
+            h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' } },
+              h('button', {
+                'data-bd-btn': '',
+                className: on ? 'ghost sm' : 'danger sm',
+                style: on ? {} : { fontWeight: 700 },
+                onClick: () => saveOne('wildMode', !on, '为所欲为'),
+              }, on ? '关掉为所欲为' : '打开为所欲为（开始野）'),
+              h('button', { 'data-bd-btn': '', className: 'outline sm', onClick: runWildOnce }, '立即来一发（只野一轮）'),
+              h('button', { 'data-bd-btn': '', className: 'ghost sm', onClick: stopAll }, '停止')),
+            h('div', { style: { marginTop: '8px', fontSize: '12px', color: 'var(--t2)' } },
+              '⚠️ 打开 = 真的发评论/动态、真投币。频率越高越容易被 B站 限流；真被风控会自动冷却 24 小时。')),
+          Card({ title: '野的节奏', sub: '默认值是替你定好的保险参数，想调也行，别调太疯' },
+            numRow('每天最多挑几条', 'wildPerDay', perDay, ' 条', 1, 500),
+            numRow('每轮挑几条', 'wildPerRound', perRound, ' 条', 1, 50),
+            numRow('两轮之间隔多久', 'wildInterval', gap, ' 分钟', 1, 240)),
+          Card({ title: 'QQ 里的「为所欲为」是另一回事', sub: '同一个引擎，两种玩法' },
+            h('div', { style: { fontSize: '12.5px', color: 'var(--t2)', lineHeight: 1.9 } },
+              '· 这页的开关：打开 = 它全自动自己野，除非你关掉。',
+              '\n· QQ 里喊它「为所欲为」：有人下令才动，野一轮就收；没人叫它，它自己不会动（最多按定时值守的节奏跑）。',
+              '\n· QQ 门卫开着「只看不干」时，喊它干活也没用——得先去「QQ 接入」把只读关掉。')))
+      }
+
       const PAGERENDER = {
         overview: renderOverview, models: renderModels, logs: renderLogs, persona: renderPersona,
         chain: renderChain, safety: renderSafety, comments: renderComments, publish: renderPublish,
-        qq: renderQQ,
+        qq: renderQQ, wild: renderWild,
         // 这三个页面共用同一批「设置类卡片」，只是各拿各的那几张
         find: () => renderSettings('find'),
         settings: () => renderSettings('settings'),
