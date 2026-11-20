@@ -904,6 +904,27 @@ img.avatar{border:1px solid var(--line);}
     return genCard + genSetCard + dynCard + vidCard + noteCard;
   }
 
+  /* SnowLuma / 通用 MCP 的接法文本：同机最省事，跨机器才要手填。渲染和复制共用一份，避免两处写歪 */
+  function qqMcpConfig(r) {
+    var port = String((r && r.port) || '8792');
+    var tk = (r && r.token) || '（打开小门后自动生成）';
+    return '[门卫地址] http://127.0.0.1:' + port + '\n' +
+      '[口令] ' + tk + '\n\n' +
+      '—— SnowLuma / qq-bridge / 任意 MCP 宿主（同一台机器）——\n' +
+      '走仓库里的 integrations/qqbridge/mcp-bili.js（标准 MCP 适配器）。\n' +
+      '同机时口令会自动读本机配置，地址和口令都不用手填。\n' +
+      '在宿主（Claude Desktop / Cline / 其它 MCP 客户端）里加这个 server：\n' +
+      '{\n' +
+      '  "mcpServers": { "bili": {\n' +
+      '    "command": "node",\n' +
+      '    "args": ["<插件目录>/integrations/qqbridge/mcp-bili.js"]\n' +
+      '  } }\n' +
+      '}\n\n' +
+      '只有机器人装在另一台机器时，才需要设环境变量：\n' +
+      'BILI_CMD_URL=http://<插件机器的局域网IP>:' + port + '\n' +
+      'BILI_TOKEN=<上面那把口令>';
+  }
+
   /* ===== QQ 接入（遥控小门）独立页：2026-11-08 拆出来，找得到也管得住 ===== */
   function renderQQ() {
     var r = (st() && st().remote) || {};
@@ -925,9 +946,13 @@ img.avatar{border:1px solid var(--line);}
       (r.token ? '<div style="margin-top:8px"><button class="btn ghost sm" data-act="qq-copytoken">复制口令</button></div>' : '') +
       '<div class="note" style="margin-top:8px">⚠️ 口令等于这扇门的钥匙：只发给机器人插件，别发到群里。</div>' +
       '<div class="note">怎么接？仓库的 <b>integrations/</b> 里有现成的：AstrBot 插件、MCP 适配器（qq-bridge / SnowLuma 等）、以及纯 HTTP 示例——照着填口令就行，不用另装服务。</div>');
+    var mcp = card('SnowLuma / 通用 MCP（同机最省事）', '和 AstrBot 一样有专门的位置：地址 + 口令一次给全，同机连填都不用填', '',
+      '<div class="note" style="margin:0 0 8px">SnowLuma、qq-bridge、Claude Desktop 这些 MCP 宿主，走的是仓库里的 <b>integrations/qqbridge/mcp-bili.js</b>。同一台机器上，它自己读口令，地址和口令都不用手填——下面这段直接复制给宿主就行。</div>' +
+      '<div style="font-family:ui-monospace,monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto">' + esc(qqMcpConfig(r)) + '</div>' +
+      (r.token ? '<div style="margin-top:8px"><button class="btn ghost sm" data-act="qq-copymcp">复制 SnowLuma/MCP 配置</button></div>' : ''));
     var acts = card('门里允许干什么（白名单）', '改配置、拿密钥这类事，门里根本没有对应动作', '',
       '<div class="note" style="margin:0">看状态 · 看最近刷的视频 · 看发过的评论/动态 · 看日报 · 命令刷一轮 · 试跑（只挑不发） · 停止 · 发动态 · 查回私信 · 撤回最近几条评论</div>');
-    return body + secret + acts;
+    return body + secret + mcp + acts;
   }
 
   /* ===== 挂机页（2026-11-09）：所有「自动」聚在这一页，总览/发布/设置不再散落 ===== */
@@ -1182,6 +1207,11 @@ img.avatar{border:1px solid var(--line);}
     if (act === 'qq-copytoken') {
       var tk = ((st() && st().remote) || {}).token || '';
       try { navigator.clipboard.writeText(tk); toast('口令已复制'); } catch (e) { toast('复制失败，手动选中有'); }
+      return;
+    }
+    if (act === 'qq-copymcp') {
+      var cfg = qqMcpConfig((st() && st().remote) || {});
+      try { navigator.clipboard.writeText(cfg); toast('SnowLuma/MCP 配置已复制'); } catch (e) { toast('复制失败，手动选中有'); }
       return;
     }
     if (act === 'upcheck') return post('/update/check', { force: true })
